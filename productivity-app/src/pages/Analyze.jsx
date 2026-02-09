@@ -15,7 +15,7 @@ const Analyze = () => {
   
   const [allSessions, setAllSessions] = useState([]);
 
-
+  // Stats
   const [todayStats, setTodayStats] = useState({ minutes: 0, sessions: 0 });
   const [lifetimeStats, setLifetimeStats] = useState({ minutes: 0, sessions: 0, days: 0 });
   const [streakStats, setStreakStats] = useState({ current: 0, best: 0 });
@@ -23,35 +23,30 @@ const Analyze = () => {
   const [currentDate, setCurrentDate] = useState(new Date()); 
 
   const [dayStats, setDayStats] = useState({
-    totalMinutes: 0,
-    sessions: 0,
-    tagDistribution: [],
-    timelineSessions: [] 
+    totalMinutes: 0, sessions: 0, tagDistribution: [], timelineSessions: [] 
   });
 
-
   const [weekStats, setWeekStats] = useState({
-    totalMinutes: 0,
-    sessions: 0,
-    prevTotalMinutes: 0,
-    dailyData: [], 
-    tagDistribution: [] 
+    totalMinutes: 0, sessions: 0, prevTotalMinutes: 0, dailyData: [], tagDistribution: [] 
   });
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [yearStats, setYearStats] = useState({
-    totalMinutes: 0,
-    sessions: 0,
-    activeDays: 0,
-    avgSession: 0,
-    bestDayMins: 0,
-    bestMonthMins: 0,
-    bestStreak: 0,
-    tagDistribution: [],
-    monthlyHeatmap: {} 
+    totalMinutes: 0, sessions: 0, activeDays: 0, avgSession: 0,
+    bestDayMins: 0, bestMonthMins: 0, bestStreak: 0,
+    tagDistribution: [], monthlyHeatmap: {} 
   });
 
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, data: null, title: '' });
+
+  // --- HELPER: GET LOCAL DATE STRING (YYYY-MM-DD) ---
+  // Fixes the bug where sessions after midnight UTC counted as previous day
+  const getLocalDateKey = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -62,6 +57,7 @@ const Analyze = () => {
           const fetchedSessions = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
+            // Ensure we create a proper Date object
             createdAt: doc.data().createdAt ? doc.data().createdAt.toDate() : new Date() 
           }));
           
@@ -86,20 +82,27 @@ const Analyze = () => {
   }, [allSessions, selectedYear, currentDate, loading]);
 
 
+  // ==========================================
+  // DATA PROCESSING
+  // ==========================================
 
   const processOverviewStats = (data) => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateKey(new Date()); // Fixed: Uses local time
     const map = {};
     let totalMins = 0;
     let todayMins = 0;
     let todayCount = 0;
 
     data.forEach(session => {
-        const dateStr = session.createdAt.toISOString().split('T')[0];
+        // Fixed: Uses local time for map keys
+        const dateStr = getLocalDateKey(session.createdAt);
         const mins = session.duration || 0;
+        
         if (!map[dateStr]) map[dateStr] = 0;
         map[dateStr] += mins;
+        
         totalMins += mins;
+
         if (dateStr === todayStr) {
             todayMins += mins;
             todayCount += 1;
@@ -117,8 +120,10 @@ const Analyze = () => {
   };
 
   const processDayData = (data, date) => {
+      // Create bounds for the selected local day
       const startOfDay = new Date(date);
       startOfDay.setHours(0,0,0,0);
+      
       const endOfDay = new Date(date);
       endOfDay.setHours(23,59,59,999);
 
@@ -155,14 +160,19 @@ const Analyze = () => {
   };
 
   const processWeekData = (data) => {
+    // Calculate start of week (Sunday or Monday based on preference, here Sunday=0)
     const now = new Date();
     const day = now.getDay(); 
+    // Adjust to Monday start
     const diff = now.getDate() - day + (day === 0 ? -6 : 1); 
+    
     const startOfWeek = new Date(now.setDate(diff));
     startOfWeek.setHours(0, 0, 0, 0);
+    
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     endOfWeek.setHours(23, 59, 59, 999);
+
     const startOfPrevWeek = new Date(startOfWeek);
     startOfPrevWeek.setDate(startOfWeek.getDate() - 7);
     const endOfPrevWeek = new Date(endOfWeek);
@@ -173,7 +183,7 @@ const Analyze = () => {
     let prevWeekMins = 0;
     const tagMap = {};
     const days = [];
-  
+    
     for (let i = 0; i < 7; i++) {
         const d = new Date(startOfWeek);
         d.setDate(startOfWeek.getDate() + i);
@@ -182,7 +192,7 @@ const Analyze = () => {
             dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
             dateLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             minutes: 0,
-            sessions: 0 
+            sessions: 0
         });
     }
 
@@ -192,7 +202,9 @@ const Analyze = () => {
             weekMins += s.duration;
             weekSessionsCount += 1;
             
+            // Map 0(Sun)..6(Sat) to 0(Mon)..6(Sun) index
             const dayIndex = s.createdAt.getDay() === 0 ? 6 : s.createdAt.getDay() - 1;
+            
             if (days[dayIndex]) {
                 days[dayIndex].minutes += s.duration;
                 days[dayIndex].sessions += 1;
@@ -216,6 +228,7 @@ const Analyze = () => {
   };
 
   const processYearData = (data, year) => {
+      // Filter sessions for the selected year (local time)
       const yearSessions = data.filter(s => s.createdAt.getFullYear() === year);
       const totalMins = yearSessions.reduce((acc, s) => acc + (s.duration || 0), 0);
       const sessionsCount = yearSessions.length;
@@ -225,7 +238,8 @@ const Analyze = () => {
       const tagMap = {};
       
       yearSessions.forEach(s => {
-          const dStr = s.createdAt.toISOString().split('T')[0];
+          // Fixed: Use local date key
+          const dStr = getLocalDateKey(s.createdAt);
           
           if (!dayMap[dStr]) dayMap[dStr] = { minutes: 0, sessions: 0, tags: {} };
           
@@ -250,15 +264,17 @@ const Analyze = () => {
       const bestMonthMins = Math.max(0, ...Object.values(monthMap));
       const avgSession = sessionsCount > 0 ? totalMins / sessionsCount : 0;
       
+      // Calculate Streak based on dayMap (which is now correctly local-keyed)
       let currentStreak = 0;
       let maxStreak = 0;
       if (Object.keys(dayMap).length > 0) {
           const start = new Date(year, 0, 1);
           const end = new Date(year, 11, 31);
+          // Iterate through every day of the year
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-              const iso = d.toISOString().split('T')[0];
+              const iso = getLocalDateKey(d);
               const dayData = dayMap[iso];
-              if (dayData && dayData.minutes >= 5) {
+              if (dayData && dayData.minutes >= 5) { // Minimum 5 mins to count as active
                   currentStreak++;
                   if (currentStreak > maxStreak) maxStreak = currentStreak;
               } else {
@@ -281,38 +297,52 @@ const Analyze = () => {
   };
 
   const calculateStreaks = (map, setFn) => {
-    const dates = Object.keys(map).sort();
+    const dates = Object.keys(map).sort(); // dates are YYYY-MM-DD
     if (dates.length === 0) return;
+    
     let current = 0;
     let best = 0;
+    
+    // Calculate Current Streak (Backwards from today)
     let d = new Date();
     while (true) {
-        const dStr = d.toISOString().split('T')[0];
+        const dStr = getLocalDateKey(d);
         if ((map[dStr] || 0) >= 5) {
             current++;
             d.setDate(d.getDate() - 1);
         } else {
-            if (dStr === new Date().toISOString().split('T')[0] && current === 0) {
+            // Allow skipping "today" if it's not over yet
+            const todayStr = getLocalDateKey(new Date());
+            if (dStr === todayStr && current === 0) {
                  d.setDate(d.getDate() - 1);
                  continue;
             }
             break;
         }
     }
+
+    // Calculate Best Streak (All time)
     const activeDays = dates.filter(d => map[d] >= 5).map(d => new Date(d).getTime());
     if (activeDays.length > 0) {
         let count = 1;
         best = 1;
         for (let i = 0; i < activeDays.length - 1; i++) {
-            const diffDays = Math.ceil(Math.abs(activeDays[i+1] - activeDays[i]) / (1000 * 60 * 60 * 24)); 
-            if (diffDays === 1) count++;
-            else count = 1;
+            // Difference in days
+            const diffTime = Math.abs(activeDays[i+1] - activeDays[i]);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            
+            if (diffDays === 1) {
+                count++;
+            } else {
+                count = 1;
+            }
             if (count > best) best = count;
         }
     }
     setFn({ current, best });
   };
 
+  // --- UI HELPERS ---
   const formatTime = (mins) => {
     const h = Math.floor(mins / 60);
     const m = Math.floor(mins % 60);
@@ -336,31 +366,42 @@ const Analyze = () => {
 
   const handleMouseLeave = () => setTooltip({ ...tooltip, visible: false });
 
-  const getCalendarDays = () => {
+  // --- COMPONENTS ---
+  const getCalendarDays = () => { 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const firstDayOfMonth = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const days = [];
+    
     for (let i = 0; i < firstDayOfMonth; i++) days.push(<div key={`empty-${i}`} className="h-10 w-10" />);
+    
     for (let i = 1; i <= daysInMonth; i++) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+        // Fixed: Use local date key construction
+        const d = new Date(year, month, i);
+        const dateStr = getLocalDateKey(d);
+        
         const mins = dailyMap[dateStr] || 0;
         let bgClass = 'bg-[#1E2330] text-gray-400 border border-white/5';
         if (mins > 0) bgClass = 'bg-green-900/40 text-green-400 border border-green-500/30';
         if (mins >= 30) bgClass = 'bg-green-600/60 text-white border border-green-400/50';
         if (mins >= 60) bgClass = 'bg-[#4ADE80] text-black font-bold border-none shadow-[0_0_10px_rgba(74,222,128,0.4)]';
-        const isToday = dateStr === new Date().toISOString().split('T')[0];
+        
+        // Fixed: Compare local strings
+        const isToday = dateStr === getLocalDateKey(new Date());
+        
         days.push(<div key={i} title={`${mins} mins`} className={`h-10 w-10 rounded-lg flex items-center justify-center text-sm font-medium transition-all cursor-default relative ${bgClass} ${isToday ? 'ring-2 ring-white' : ''}`}>{i}</div>);
     }
     return days;
   };
+
   const getOverviewMonthStats = () => { 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     let totalMins = 0;
     let daysFocused = 0;
     Object.entries(dailyMap).forEach(([date, mins]) => {
+        // date is YYYY-MM-DD
         const d = new Date(date);
         if (d.getFullYear() === year && d.getMonth() === month) {
             totalMins += mins;
@@ -370,6 +411,7 @@ const Analyze = () => {
     return { totalMins, daysFocused };
   };
   const overviewMonthStats = getOverviewMonthStats();
+
   const DonutChart = ({ data, total, strokeWidth = 32 }) => { 
     if (total === 0) return (<div className="relative w-40 h-40 flex items-center justify-center"><div className="w-full h-full rounded-full border-[12px] border-[#1E2330]" /><span className="absolute text-xs text-gray-500">No data</span></div>);
     let accumulatedPercent = 0;
@@ -391,24 +433,29 @@ const Analyze = () => {
         </div>
     );
   };
+
   const MiniMonthGrid = ({ monthIndex, year, dataMap }) => { 
       const firstDay = new Date(year, monthIndex, 1).getDay();
       const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
       const days = [];
       for (let i = 0; i < firstDay; i++) days.push(<div key={`e-${i}`} />);
       for (let i = 1; i <= daysInMonth; i++) {
-          const dateStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+          // Fixed: Use local date construction
+          const d = new Date(year, monthIndex, i);
+          const dateStr = getLocalDateKey(d);
+          
           const dayData = dataMap[dateStr];
           const mins = dayData?.minutes || 0;
           let colorClass = 'bg-[#1E2330]';
           if (mins > 0) colorClass = 'bg-green-900/60 hover:bg-green-800 transition-colors cursor-pointer';
           if (mins > 30) colorClass = 'bg-green-600 hover:bg-green-500 transition-colors cursor-pointer';
           if (mins > 60) colorClass = 'bg-[#4ADE80] hover:bg-green-300 transition-colors cursor-pointer';
+          
           days.push(
             <div 
                 key={i} 
                 className={`w-3.5 h-3.5 rounded-sm ${colorClass}`} 
-                onMouseEnter={(e) => handleMouseEnter(e, new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), dayData)} 
+                onMouseEnter={(e) => handleMouseEnter(e, d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), dayData)} 
                 onMouseLeave={handleMouseLeave} 
             />
           );
@@ -420,6 +467,7 @@ const Analyze = () => {
   return (
     <div className="h-full flex flex-col p-8 max-w-6xl mx-auto w-full overflow-y-auto custom-scrollbar relative">
       
+      {/* GLOBAL TOOLTIP */}
       {tooltip.visible && tooltip.data && (
         <div 
             className="fixed z-50 bg-[#0F131C] border border-white/10 rounded-xl shadow-2xl p-4 w-64 pointer-events-none transform -translate-x-1/2 -translate-y-full"
@@ -430,7 +478,6 @@ const Analyze = () => {
                 <div className="bg-white/5 rounded-lg p-2 text-center"><div className="text-[10px] text-gray-500 uppercase">Time</div><div className="text-lg font-bold text-blue-400">{formatTime(tooltip.data.minutes)}</div></div>
                 <div className="bg-white/5 rounded-lg p-2 text-center"><div className="text-[10px] text-gray-500 uppercase">Sessions</div><div className="text-lg font-bold text-purple-400">{tooltip.data.sessions}</div></div>
             </div>
-           
             {tooltip.data.tags && Object.keys(tooltip.data.tags).length > 0 && (
                 <div className="space-y-1">
                     <div className="text-[10px] text-gray-500 uppercase mb-1">By Tag</div>
@@ -445,7 +492,7 @@ const Analyze = () => {
         </div>
       )}
 
-
+      {/* Header & Tabs */}
       <div className="flex flex-col gap-6 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white mb-1">Analytics</h1>
@@ -461,7 +508,7 @@ const Analyze = () => {
         <div className="text-gray-500 animate-pulse">Loading data...</div>
       ) : (
         <>
-   
+        {/* OVERVIEW */}
         {activeTab === 'Overview' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -515,7 +562,7 @@ const Analyze = () => {
           </div>
         )}
 
-    
+        {/* VIEW 2: DAY */}
         {activeTab === 'Day' && (
           <div className="space-y-6">
              <div className="flex items-center justify-between mb-4">
@@ -570,6 +617,7 @@ const Analyze = () => {
           </div>
         )}
 
+        {/* VIEW 3: WEEK */}
         {activeTab === 'Week' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -591,49 +639,33 @@ const Analyze = () => {
             </div>
             
             <div className="bg-[#151922] border border-white/5 rounded-2xl p-8 relative">
-                <div className="flex items-center gap-2 mb-6">
-                    <BarChart className="text-blue-400" size={20} />
-                    <h3 className="text-lg font-bold text-white">Daily Focus Activity</h3>
-                </div>
+                <div className="flex items-center gap-2 mb-6"><BarChart className="text-blue-400" size={20} /><h3 className="text-lg font-bold text-white">Daily Focus Activity</h3></div>
                 <div className="h-64 flex items-end justify-between gap-4">
                     {weekStats.dailyData.map((day, i) => {
                         const maxVal = Math.max(120, ...weekStats.dailyData.map(d => d.minutes));
                         const heightPercent = maxVal > 0 ? (day.minutes / maxVal) * 100 : 0;
-                        
                         return (
                             <div key={i} className="flex-1 flex flex-col items-center gap-3 h-full justify-end group cursor-pointer">
-                              
                                 <div 
                                     className="w-full max-w-[40px] bg-[#1E2330] rounded-t-lg relative flex items-end overflow-hidden flex-1 hover:bg-[#252b3b] transition-colors"
                                     onMouseEnter={(e) => handleMouseEnter(e, `${day.dayName}, ${day.dateLabel}`, day)}
                                     onMouseLeave={handleMouseLeave}
                                 >
-                                  
-                                    <div 
-                                        className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg transition-all duration-500 relative"
-                                        style={{ height: `${heightPercent}%` }}
-                                    >
-                                    
+                                    <div className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg transition-all duration-500 relative" style={{ height: `${heightPercent}%` }}>
                                         <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
                                     </div>
                                 </div>
-
-                             
-                                <div className="text-center">
-                                    <div className="text-xs font-bold text-gray-300 group-hover:text-white transition-colors">{day.dayName}</div>
-                                    <div className="text-[10px] text-gray-600 group-hover:text-gray-500">{day.dateLabel}</div>
-                                </div>
+                                <div className="text-center"><div className="text-xs font-bold text-gray-300 group-hover:text-white transition-colors">{day.dayName}</div><div className="text-[10px] text-gray-600 group-hover:text-gray-500">{day.dateLabel}</div></div>
                             </div>
                         );
                     })}
                 </div>
-             
                 <div className="absolute bottom-[3.5rem] left-8 right-8 h-px bg-white/5 -z-10" />
             </div>
           </div>
         )}
 
-      
+        {/* VIEW 4: YEAR */}
         {activeTab === 'Year' && (
           <div className="space-y-6">
              <div className="flex items-center justify-between">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Target, BarChart2, LogOut, ChevronRight, LogIn } from 'lucide-react';
+import { Target, BarChart2, LogOut, ChevronRight, LogIn, Flame } from 'lucide-react';
 import { auth, googleProvider, db } from '../firebase'; 
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'; 
@@ -10,14 +10,20 @@ const Sidebar = () => {
   const [dailyStats, setDailyStats] = useState({}); 
   const [currentStreak, setCurrentStreak] = useState(0);
 
+  // --- 1. TIMEZONE FIX HELPER ---
+  const getLocalDateKey = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
 
       if (currentUser) {
-   
         const sessionsRef = collection(db, 'users', currentUser.uid, 'sessions');
-
         const q = query(sessionsRef, orderBy('createdAt', 'desc'));
 
         const unsubscribeSessions = onSnapshot(q, (snapshot) => {
@@ -27,10 +33,8 @@ const Sidebar = () => {
               const data = doc.data();
               if (!data.createdAt) return;
               
-        
-              const date = data.createdAt.toDate().toISOString().split('T')[0];
+              const date = getLocalDateKey(data.createdAt.toDate());
               
-             
               if (!stats[date]) stats[date] = 0;
               stats[date] += data.duration || 0;
            });
@@ -51,23 +55,20 @@ const Sidebar = () => {
   const calculateStreak = (stats) => {
     let streak = 0;
     const today = new Date();
+    const todayStr = getLocalDateKey(today);
     
-  
-    const todayStr = today.toISOString().split('T')[0];
-    if (stats[todayStr] >= 5) {
+    if ((stats[todayStr] || 0) >= 5) {
         streak++;
     }
 
-   
     for (let i = 1; i < 365; i++) {
         const prevDate = new Date();
         prevDate.setDate(today.getDate() - i);
-        const dateStr = prevDate.toISOString().split('T')[0];
+        const dateStr = getLocalDateKey(prevDate);
 
-        if (stats[dateStr] >= 5) {
+        if ((stats[dateStr] || 0) >= 5) {
             streak++;
         } else {
-         
             if (i === 1 && streak === 0) continue; 
             break; 
         }
@@ -99,27 +100,40 @@ const Sidebar = () => {
     const currentYear = today.getFullYear();
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     
-    for (let i = 1; i <= daysInMonth; i++) {
+    const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+    for (let i = 0; i < firstDayOfMonth; i++) {
+        days.push(<div key={`empty-${i}`} className="h-6 w-6" />);
+    }
     
-        const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+    for (let i = 1; i <= daysInMonth; i++) {
+        const dateObj = new Date(currentYear, currentMonth, i);
+        const dateStr = getLocalDateKey(dateObj);
         
         const minutes = dailyStats[dateStr] || 0;
-        const isActive = minutes >= 5; // STREAK RULE: Only count if >= 5 mins
+        const isActive = minutes >= 5; 
         const isToday = i === today.getDate();
         
+        // --- UPDATED STYLING LOGIC ---
+        let classes = "h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-medium transition-all cursor-default ";
+        
+        if (isActive) {
+            // Active Day (Green)
+            classes += "bg-green-500/20 text-green-400 border border-green-500/30 ";
+        } else {
+            // Inactive Day (Gray)
+            classes += "text-gray-600 hover:bg-white/5 ";
+        }
+
+        // Today Override (Add White Border)
+        if (isToday) {
+            classes += "ring-1 ring-white text-white font-bold "; // Replaced bg-white with ring-white
+        }
+
         days.push(
             <div 
                 key={i}
                 title={`${minutes.toFixed(0)} mins focused`}
-                className={`
-                    h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-medium transition-all cursor-default
-                    ${isToday 
-                        ? 'bg-white text-black font-bold shadow-lg shadow-white/20 scale-110 z-10' // Today
-                        : isActive 
-                            ? 'bg-green-500/20 text-green-400 border border-green-500/30' // Active (>5m)
-                            : 'text-gray-600 hover:bg-white/5' // Inactive
-                    }
-                `}
+                className={classes}
             >
                 {i}
             </div>
@@ -165,9 +179,12 @@ const Sidebar = () => {
 
       <div className="px-1">
         <div className="flex items-center justify-between mb-3 px-2">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Current Streak</h3>
-            <span className="text-[10px] text-green-400 font-mono bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
-                {currentStreak} Days
+            <div className="flex items-center gap-2">
+                <Flame className="text-orange-500 fill-orange-500/20" size={14} />
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Streak</h3>
+            </div>
+            <span className="text-xs font-bold text-white bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                {currentStreak} <span className="text-sm leading-none">🔥</span>
             </span>
         </div>
         
