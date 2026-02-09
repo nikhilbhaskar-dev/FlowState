@@ -9,7 +9,7 @@ function App() {
       <div className="flex h-screen w-screen text-text">
         <Sidebar />
         
-        {/* Main Content Area */}
+     
         <main className="flex-1 h-full overflow-auto bg-background p-8">
           <Routes>
             <Route path="/" element={<Focus />} />

@@ -3,7 +3,7 @@ import { Play, Pause, Settings, CheckSquare, Tag, Volume2, Square, Check, Volume
 import FocusSettings from '../components/FocusSettings';
 import TagManager from '../components/TagManager';
 
-// Firebase Imports
+
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -14,7 +14,6 @@ const Focus = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // --- 1. INITIALIZE STATE FROM STORAGE (Fixes the bug) ---
   const [settings, setSettings] = useState(() => {
       const saved = localStorage.getItem('focusSettings');
       return saved ? JSON.parse(saved) : {
@@ -36,7 +35,7 @@ const Focus = () => {
       if (saved) {
           const { timeLeft, lastUpdated, isActive: wasActive } = JSON.parse(saved);
           
-          // If it was running, calculate time elapsed while away
+          
           if (wasActive) {
               const now = Date.now();
               const elapsedSeconds = Math.floor((now - lastUpdated) / 1000);
@@ -47,7 +46,7 @@ const Focus = () => {
       return settings.focusDuration * 60;
   });
 
-  // State
+
   const [showSettings, setShowSettings] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   
@@ -60,9 +59,8 @@ const Focus = () => {
   const [tags, setTags] = useState([]);
   const [selectedTag, setSelectedTag] = useState(null);
 
-  // --- 2. PERSIST STATE ON CHANGE ---
   useEffect(() => {
-      // Save state every second or whenever it changes
+      
       localStorage.setItem('timerState', JSON.stringify({
           timeLeft,
           isActive,
@@ -70,7 +68,7 @@ const Focus = () => {
       }));
   }, [timeLeft, isActive]);
 
-  // --- 3. AUTH & SYNC ---
+
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -83,14 +81,11 @@ const Focus = () => {
             const data = docSnap.data();
             if (data.tags) setTags(data.tags);
             if (data.settings) {
-                // Only update settings if they actually changed
-                // AND don't reset timer if we are in the middle of a paused session
+                
                 setSettings((prev) => {
                     const newSettings = data.settings;
                     
-                    // Logic: If I am NOT active, and my timeLeft equals the OLD duration, 
-                    // then I can safely update to the NEW duration.
-                    // Otherwise (if I am paused at 10:00), don't touch timeLeft.
+                  
                     const isAtStart = timeLeft === prev.focusDuration * 60;
                     
                     if (!isActive && isAtStart) {
@@ -110,9 +105,9 @@ const Focus = () => {
       }
     });
     return () => unsubscribeAuth();
-  }, []); // Empty dependency array to run once on mount
+  }, []); 
 
-  // --- 4. SESSION SAVING LOGIC ---
+  
   const saveSession = async (completed = false) => {
     if (!user) return; 
 
@@ -120,7 +115,7 @@ const Focus = () => {
     const elapsedSeconds = totalSeconds - timeLeft;
     const durationMinutes = elapsedSeconds / 60;
 
-    // Clear storage when done
+   
     if (completed) {
         localStorage.removeItem('timerState');
     }
@@ -142,7 +137,7 @@ const Focus = () => {
 
   const updateSettings = async (newSettings) => {
     setSettings(newSettings); 
-    // If we update settings, only reset timer if not running
+   
     if (!isActive) {
         setTimeLeft(newSettings.focusDuration * 60);
     }
@@ -199,7 +194,7 @@ const Focus = () => {
     saveSession(false);
     setIsActive(false);
     setTimeLeft(settings.focusDuration * 60);
-    localStorage.removeItem('timerState'); // Clear state on manual stop
+    localStorage.removeItem('timerState'); 
   };
 
   const formatTime = (seconds) => {
@@ -241,7 +236,7 @@ const Focus = () => {
         setTags={updateTags} 
       />
 
-      {/* Tag Selector */}
+     
       <div className="w-80 relative" ref={tagMenuRef}>
         <button 
           onClick={() => setShowTagMenu(!showTagMenu)}
@@ -291,7 +286,6 @@ const Focus = () => {
         )}
       </div>
 
-      {/* Pagination */}
       <div className="flex gap-2 mb-2">
         <div className="w-4 h-4 rounded-full border-2 border-green-500 flex items-center justify-center">
             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
@@ -299,7 +293,7 @@ const Focus = () => {
         <div className="w-4 h-4 rounded-full bg-gray-600 opacity-50"></div>
       </div>
 
-      {/* Circle */}
+
       <div className="relative mb-6">
         <div className="w-[340px] h-[340px] rounded-full bg-[#152329] flex items-center justify-center relative shadow-2xl shadow-black/50">
             <div className="text-center z-10">
@@ -321,7 +315,7 @@ const Focus = () => {
         </div>
       </div>
 
-      {/* Controls */}
+
       <div className="flex items-center gap-4">
         <button 
             onClick={toggleTimer}
@@ -347,7 +341,6 @@ const Focus = () => {
         </div>
       </div>
 
-      {/* Secondary Actions */}
       <div className="flex gap-3 mt-4">
         <ActionButton 
             icon={<Settings size={16} />} 
