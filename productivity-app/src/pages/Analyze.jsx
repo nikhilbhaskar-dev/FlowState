@@ -40,7 +40,6 @@ const Analyze = () => {
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, data: null, title: '' });
 
   // --- HELPER: GET LOCAL DATE STRING (YYYY-MM-DD) ---
-  // Fixes the bug where sessions after midnight UTC counted as previous day
   const getLocalDateKey = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -57,7 +56,6 @@ const Analyze = () => {
           const fetchedSessions = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            // Ensure we create a proper Date object
             createdAt: doc.data().createdAt ? doc.data().createdAt.toDate() : new Date() 
           }));
           
@@ -87,14 +85,13 @@ const Analyze = () => {
   // ==========================================
 
   const processOverviewStats = (data) => {
-    const todayStr = getLocalDateKey(new Date()); // Fixed: Uses local time
+    const todayStr = getLocalDateKey(new Date()); 
     const map = {};
     let totalMins = 0;
     let todayMins = 0;
     let todayCount = 0;
 
     data.forEach(session => {
-        // Fixed: Uses local time for map keys
         const dateStr = getLocalDateKey(session.createdAt);
         const mins = session.duration || 0;
         
@@ -120,7 +117,6 @@ const Analyze = () => {
   };
 
   const processDayData = (data, date) => {
-      // Create bounds for the selected local day
       const startOfDay = new Date(date);
       startOfDay.setHours(0,0,0,0);
       
@@ -137,8 +133,10 @@ const Analyze = () => {
       const timelineData = [];
 
       daySessions.forEach(s => {
+          // --- FIX: ROBUST TAG CHECK ---
           const tagName = s.tag?.name || 'Untagged';
           const tagColor = s.tag?.color || '#3B82F6';
+          
           if (!tagMap[tagName]) tagMap[tagName] = { name: tagName, color: tagColor, minutes: 0 };
           tagMap[tagName].minutes += s.duration;
 
@@ -160,10 +158,8 @@ const Analyze = () => {
   };
 
   const processWeekData = (data) => {
-    // Calculate start of week (Sunday or Monday based on preference, here Sunday=0)
     const now = new Date();
     const day = now.getDay(); 
-    // Adjust to Monday start
     const diff = now.getDate() - day + (day === 0 ? -6 : 1); 
     
     const startOfWeek = new Date(now.setDate(diff));
@@ -202,7 +198,6 @@ const Analyze = () => {
             weekMins += s.duration;
             weekSessionsCount += 1;
             
-            // Map 0(Sun)..6(Sat) to 0(Mon)..6(Sun) index
             const dayIndex = s.createdAt.getDay() === 0 ? 6 : s.createdAt.getDay() - 1;
             
             if (days[dayIndex]) {
@@ -210,8 +205,10 @@ const Analyze = () => {
                 days[dayIndex].sessions += 1;
             }
 
+            // --- FIX: ROBUST TAG CHECK ---
             const tagName = s.tag?.name || 'Untagged';
             const tagColor = s.tag?.color || '#3B82F6';
+            
             if (!tagMap[tagName]) tagMap[tagName] = { name: tagName, color: tagColor, minutes: 0 };
             tagMap[tagName].minutes += s.duration;
         }
@@ -228,7 +225,6 @@ const Analyze = () => {
   };
 
   const processYearData = (data, year) => {
-      // Filter sessions for the selected year (local time)
       const yearSessions = data.filter(s => s.createdAt.getFullYear() === year);
       const totalMins = yearSessions.reduce((acc, s) => acc + (s.duration || 0), 0);
       const sessionsCount = yearSessions.length;
@@ -238,7 +234,6 @@ const Analyze = () => {
       const tagMap = {};
       
       yearSessions.forEach(s => {
-          // Fixed: Use local date key
           const dStr = getLocalDateKey(s.createdAt);
           
           if (!dayMap[dStr]) dayMap[dStr] = { minutes: 0, sessions: 0, tags: {} };
@@ -249,6 +244,7 @@ const Analyze = () => {
           const m = s.createdAt.getMonth();
           monthMap[m] = (monthMap[m] || 0) + s.duration;
 
+          // --- FIX: ROBUST TAG CHECK ---
           const tagName = s.tag?.name || 'Untagged';
           const tagColor = s.tag?.color || '#3B82F6';
 
@@ -264,17 +260,15 @@ const Analyze = () => {
       const bestMonthMins = Math.max(0, ...Object.values(monthMap));
       const avgSession = sessionsCount > 0 ? totalMins / sessionsCount : 0;
       
-      // Calculate Streak based on dayMap (which is now correctly local-keyed)
       let currentStreak = 0;
       let maxStreak = 0;
       if (Object.keys(dayMap).length > 0) {
           const start = new Date(year, 0, 1);
           const end = new Date(year, 11, 31);
-          // Iterate through every day of the year
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
               const iso = getLocalDateKey(d);
               const dayData = dayMap[iso];
-              if (dayData && dayData.minutes >= 5) { // Minimum 5 mins to count as active
+              if (dayData && dayData.minutes >= 5) {
                   currentStreak++;
                   if (currentStreak > maxStreak) maxStreak = currentStreak;
               } else {
@@ -297,13 +291,12 @@ const Analyze = () => {
   };
 
   const calculateStreaks = (map, setFn) => {
-    const dates = Object.keys(map).sort(); // dates are YYYY-MM-DD
+    const dates = Object.keys(map).sort(); 
     if (dates.length === 0) return;
     
     let current = 0;
     let best = 0;
     
-    // Calculate Current Streak (Backwards from today)
     let d = new Date();
     while (true) {
         const dStr = getLocalDateKey(d);
@@ -311,7 +304,6 @@ const Analyze = () => {
             current++;
             d.setDate(d.getDate() - 1);
         } else {
-            // Allow skipping "today" if it's not over yet
             const todayStr = getLocalDateKey(new Date());
             if (dStr === todayStr && current === 0) {
                  d.setDate(d.getDate() - 1);
@@ -321,13 +313,11 @@ const Analyze = () => {
         }
     }
 
-    // Calculate Best Streak (All time)
     const activeDays = dates.filter(d => map[d] >= 5).map(d => new Date(d).getTime());
     if (activeDays.length > 0) {
         let count = 1;
         best = 1;
         for (let i = 0; i < activeDays.length - 1; i++) {
-            // Difference in days
             const diffTime = Math.abs(activeDays[i+1] - activeDays[i]);
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
             
@@ -377,7 +367,6 @@ const Analyze = () => {
     for (let i = 0; i < firstDayOfMonth; i++) days.push(<div key={`empty-${i}`} className="h-10 w-10" />);
     
     for (let i = 1; i <= daysInMonth; i++) {
-        // Fixed: Use local date key construction
         const d = new Date(year, month, i);
         const dateStr = getLocalDateKey(d);
         
@@ -387,7 +376,6 @@ const Analyze = () => {
         if (mins >= 30) bgClass = 'bg-green-600/60 text-white border border-green-400/50';
         if (mins >= 60) bgClass = 'bg-[#4ADE80] text-black font-bold border-none shadow-[0_0_10px_rgba(74,222,128,0.4)]';
         
-        // Fixed: Compare local strings
         const isToday = dateStr === getLocalDateKey(new Date());
         
         days.push(<div key={i} title={`${mins} mins`} className={`h-10 w-10 rounded-lg flex items-center justify-center text-sm font-medium transition-all cursor-default relative ${bgClass} ${isToday ? 'ring-2 ring-white' : ''}`}>{i}</div>);
@@ -401,7 +389,6 @@ const Analyze = () => {
     let totalMins = 0;
     let daysFocused = 0;
     Object.entries(dailyMap).forEach(([date, mins]) => {
-        // date is YYYY-MM-DD
         const d = new Date(date);
         if (d.getFullYear() === year && d.getMonth() === month) {
             totalMins += mins;
@@ -440,7 +427,6 @@ const Analyze = () => {
       const days = [];
       for (let i = 0; i < firstDay; i++) days.push(<div key={`e-${i}`} />);
       for (let i = 1; i <= daysInMonth; i++) {
-          // Fixed: Use local date construction
           const d = new Date(year, monthIndex, i);
           const dateStr = getLocalDateKey(d);
           
