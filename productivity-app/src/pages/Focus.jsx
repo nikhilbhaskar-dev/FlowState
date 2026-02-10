@@ -3,7 +3,7 @@ import { Play, Pause, Settings, CheckSquare, Tag, Volume2, Square, Check, Volume
 import FocusSettings from '../components/FocusSettings';
 import TagManager from '../components/TagManager';
 
-
+// Firebase Imports
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -14,6 +14,7 @@ const Focus = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // --- 1. INITIALIZE STATE ---
   const [settings, setSettings] = useState(() => {
       const saved = localStorage.getItem('focusSettings');
       return saved ? JSON.parse(saved) : {
@@ -34,8 +35,6 @@ const Focus = () => {
       const saved = localStorage.getItem('timerState');
       if (saved) {
           const { timeLeft, lastUpdated, isActive: wasActive } = JSON.parse(saved);
-          
-          
           if (wasActive) {
               const now = Date.now();
               const elapsedSeconds = Math.floor((now - lastUpdated) / 1000);
@@ -46,7 +45,7 @@ const Focus = () => {
       return settings.focusDuration * 60;
   });
 
-
+  // State
   const [showSettings, setShowSettings] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   
@@ -59,8 +58,8 @@ const Focus = () => {
   const [tags, setTags] = useState([]);
   const [selectedTag, setSelectedTag] = useState(null);
 
+  // --- 2. PERSIST STATE ---
   useEffect(() => {
-      
       localStorage.setItem('timerState', JSON.stringify({
           timeLeft,
           isActive,
@@ -68,7 +67,7 @@ const Focus = () => {
       }));
   }, [timeLeft, isActive]);
 
-
+  // --- 3. AUTH & SYNC ---
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -81,13 +80,9 @@ const Focus = () => {
             const data = docSnap.data();
             if (data.tags) setTags(data.tags);
             if (data.settings) {
-                
                 setSettings((prev) => {
                     const newSettings = data.settings;
-                    
-                  
                     const isAtStart = timeLeft === prev.focusDuration * 60;
-                    
                     if (!isActive && isAtStart) {
                         setTimeLeft(newSettings.focusDuration * 60);
                     }
@@ -107,7 +102,7 @@ const Focus = () => {
     return () => unsubscribeAuth();
   }, []); 
 
-  
+  // --- 4. SESSION SAVING LOGIC ---
   const saveSession = async (completed = false) => {
     if (!user) return; 
 
@@ -115,12 +110,11 @@ const Focus = () => {
     const elapsedSeconds = totalSeconds - timeLeft;
     const durationMinutes = elapsedSeconds / 60;
 
-   
     if (completed) {
         localStorage.removeItem('timerState');
     }
 
-    if (durationMinutes < 0.1) return;
+    if (durationMinutes <= 0) return;
 
     try {
       await addDoc(collection(db, 'users', user.uid, 'sessions'), {
@@ -137,7 +131,6 @@ const Focus = () => {
 
   const updateSettings = async (newSettings) => {
     setSettings(newSettings); 
-   
     if (!isActive) {
         setTimeLeft(newSettings.focusDuration * 60);
     }
@@ -207,14 +200,22 @@ const Focus = () => {
 
   const hasStarted = timeLeft !== settings.focusDuration * 60;
 
+  // --- 6. PROGRESS RING ---
+  const radius = 190; 
+  const circumference = 2 * Math.PI * radius;
+  const totalSeconds = settings.focusDuration * 60;
+  const progress = totalSeconds > 0 ? timeLeft / totalSeconds : 0;
+  const strokeDashoffset = circumference - (progress * circumference);
+
   return (
     <div className="h-full w-full relative overflow-hidden flex flex-col items-center justify-center gap-6">
       
+      {/* 1. DIGITAL FONT */}
       <style>
         {`
-          @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+          @import url('https://fonts.cdnfonts.com/css/digital-7-mono');
           .font-digital {
-            font-family: 'Share Tech Mono', monospace;
+            font-family: 'Digital-7 Mono', monospace;
             font-variant-numeric: tabular-nums; 
           }
         `}
@@ -236,7 +237,7 @@ const Focus = () => {
         setTags={updateTags} 
       />
 
-     
+      {/* Tag Selector */}
       <div className="w-80 relative" ref={tagMenuRef}>
         <button 
           onClick={() => setShowTagMenu(!showTagMenu)}
@@ -286,22 +287,42 @@ const Focus = () => {
         )}
       </div>
 
+      {/* Pagination */}
       <div className="flex gap-2 mb-2">
         <div className="w-4 h-4 rounded-full border-2 border-green-500 flex items-center justify-center">
             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
         </div>
-        <div className="w-4 h-4 rounded-full bg-gray-600 opacity-50"></div>
       </div>
 
-
+      {/* TIMER CIRCLE */}
       <div className="relative mb-6">
-        <div className="w-[340px] h-[340px] rounded-full bg-[#152329] flex items-center justify-center relative shadow-2xl shadow-black/50">
+        <div className="w-[400px] h-[400px] rounded-full bg-[#152329] flex items-center justify-center relative shadow-2xl shadow-black/50">
+            
+            {/* SVG Ring */}
+            <svg className="absolute inset-0 w-full h-full -rotate-90 transform pointer-events-none" viewBox="0 0 400 400">
+              <circle 
+                cx="200" cy="200" r={radius} 
+                stroke="#1E2330" strokeWidth="2" fill="none" 
+              />
+              <circle
+                cx="200" cy="200" r={radius}
+                stroke="#4ADE80" strokeWidth="2"
+                fill="none"
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="round"
+                className="transition-all duration-1000 ease-linear"
+                style={{ filter: "drop-shadow(0 0 6px rgba(74, 222, 128, 0.7))" }}
+              />
+            </svg>
+
             <div className="text-center z-10">
                 <div className="text-[#4ADE80] text-lg font-medium mb-1 tracking-wide">
                     {settings.mode === 'timer' ? 'Focus' : 'Stopwatch'}
                 </div>
                 
-                <div className="text-8xl font-bold text-[#86EFAC] tracking-wider font-digital leading-none pb-4">
+                {/* FIXED FONT SIZE: Always 8xl */}
+                <div className="text-8xl text-[#86EFAC] font-digital leading-none pb-4 tracking-widest">
                     {formatTime(timeLeft)}
                 </div>
 
@@ -315,7 +336,7 @@ const Focus = () => {
         </div>
       </div>
 
-
+      {/* Controls */}
       <div className="flex items-center gap-4">
         <button 
             onClick={toggleTimer}
@@ -341,6 +362,7 @@ const Focus = () => {
         </div>
       </div>
 
+      {/* Secondary Actions */}
       <div className="flex gap-3 mt-4">
         <ActionButton 
             icon={<Settings size={16} />} 
