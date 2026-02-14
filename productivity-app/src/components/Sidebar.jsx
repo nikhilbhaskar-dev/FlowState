@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { Target, BarChart2, LogOut, ChevronRight, LogIn, Flame } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { Target, BarChart2, LogOut, ChevronRight, LogIn, Flame, User } from 'lucide-react';
 import { auth, googleProvider, db } from '../firebase'; 
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'; 
 
 const Sidebar = () => {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [dailyStats, setDailyStats] = useState({}); 
   const [currentStreak, setCurrentStreak] = useState(0);
@@ -86,6 +87,7 @@ const Sidebar = () => {
 
   const handleLogout = async () => {
     await signOut(auth);
+    navigate('/login');
   };
 
   const navItems = [
@@ -109,31 +111,38 @@ const Sidebar = () => {
         const dateObj = new Date(currentYear, currentMonth, i);
         const dateStr = getLocalDateKey(dateObj);
         
-        const minutes = dailyStats[dateStr] || 0;
-        const isActive = minutes >= 5; 
+        const mins = dailyStats[dateStr] || 0;
         const isToday = i === today.getDate();
         
-        // --- UPDATED STYLING LOGIC ---
-        let classes = "h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-medium transition-all cursor-default ";
-        
-        if (isActive) {
-            // Active Day (Green)
-            classes += "bg-green-500/20 text-green-400 border border-green-500/30 ";
-        } else {
-            // Inactive Day (Gray)
-            classes += "text-gray-600 hover:bg-white/5 ";
+        // --- GRADUAL HEATMAP STYLING LOGIC (Max at 5 Hours) ---
+        let bgClass = 'text-gray-600 hover:bg-white/5'; // 0 mins (Empty)
+
+        if (mins > 0) {
+            if (mins < 60) {
+                // Tier 1: < 1 hr (Subtle)
+                bgClass = 'bg-green-900/40 text-green-400 border border-green-500/30';
+            } else if (mins < 180) {
+                // Tier 2: 1 hr - 3 hrs (Medium)
+                bgClass = 'bg-green-700/50 text-green-100 border border-green-500/50';
+            } else if (mins < 300) {
+                // Tier 3: 3 hrs - 5 hrs (Strong)
+                bgClass = 'bg-green-600 text-white border border-green-400';
+            } else {
+                // Tier 4: 5+ hrs (Max Intensity / Neon)
+                bgClass = 'bg-[#4ADE80] text-black font-bold shadow-[0_0_10px_rgba(74,222,128,0.4)] border-none';
+            }
         }
 
-        // Today Override (Add White Border)
+        // Today Override (Add White Ring)
         if (isToday) {
-            classes += "ring-1 ring-white text-white font-bold "; // Replaced bg-white with ring-white
+            bgClass += " ring-1 ring-white";
         }
 
         days.push(
             <div 
                 key={i}
-                title={`${minutes.toFixed(0)} mins focused`}
-                className={classes}
+                title={`${mins.toFixed(0)} mins focused`}
+                className={`h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-medium transition-all cursor-default relative ${bgClass}`}
             >
                 {i}
             </div>

@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Activity, Zap, Target, BarChart, Calendar, Tag 
 } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc } from 'firebase/firestore'; 
 import { onAuthStateChanged } from 'firebase/auth';
 import { Link } from 'react-router-dom';
 
@@ -14,8 +14,8 @@ const Analyze = () => {
   const [loading, setLoading] = useState(true);
   
   const [allSessions, setAllSessions] = useState([]);
+  const [latestTags, setLatestTags] = useState({}); 
 
-  // Stats
   const [todayStats, setTodayStats] = useState({ minutes: 0, sessions: 0 });
   const [lifetimeStats, setLifetimeStats] = useState({ minutes: 0, sessions: 0, days: 0 });
   const [streakStats, setStreakStats] = useState({ current: 0, best: 0 });
@@ -39,7 +39,6 @@ const Analyze = () => {
 
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, data: null, title: '' });
 
-  // --- HELPER: GET LOCAL DATE STRING (YYYY-MM-DD) ---
   const getLocalDateKey = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -51,18 +50,38 @@ const Analyze = () => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
+        // 1. Fetch Sessions
         const q = query(collection(db, 'users', currentUser.uid, 'sessions'), orderBy('createdAt', 'desc'));
-        const unsubscribeData = onSnapshot(q, (snapshot) => {
+        const unsubscribeSessions = onSnapshot(q, (snapshot) => {
           const fetchedSessions = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
             createdAt: doc.data().createdAt ? doc.data().createdAt.toDate() : new Date() 
           }));
-          
           setAllSessions(fetchedSessions);
           setLoading(false);
         });
-        return () => unsubscribeData();
+
+        // 2. Fetch User Tags (To get updated colors)
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const unsubscribeTags = onSnapshot(userDocRef, (docSnap) => {
+            if(docSnap.exists()) {
+                const data = docSnap.data();
+                if(data.tags) {
+                    const tagMap = {};
+                    data.tags.forEach(t => {
+                        if(t.id) tagMap[t.id] = t;
+                        if(t.name) tagMap[t.name] = t;
+                    });
+                    setLatestTags(tagMap);
+                }
+            }
+        });
+
+        return () => {
+            unsubscribeSessions();
+            unsubscribeTags();
+        };
       } else {
         setLoading(false);
       }
@@ -77,12 +96,26 @@ const Analyze = () => {
         processYearData(allSessions, selectedYear);
         processDayData(allSessions, currentDate);
     }
-  }, [allSessions, selectedYear, currentDate, loading]);
+  }, [allSessions, selectedYear, currentDate, loading, latestTags]); 
 
 
-  // ==========================================
-  // DATA PROCESSING
-  // ==========================================
+  // --- Helper to get latest color ---
+  const resolveTagInfo = (sessionTag) => {
+    if (!sessionTag) return { name: 'Untagged', color: '#3B82F6' };
+    const currentTagConfig = latestTags[sessionTag.id] || latestTags[sessionTag.name];
+    
+    if (currentTagConfig) {
+        return { 
+            name: currentTagConfig.name, 
+            color: currentTagConfig.color 
+        };
+    }
+    return { 
+        name: sessionTag.name || 'Untagged', 
+        color: sessionTag.color || '#3B82F6' 
+    };
+  };
+
 
   const processOverviewStats = (data) => {
     const todayStr = getLocalDateKey(new Date()); 
@@ -133,9 +166,7 @@ const Analyze = () => {
       const timelineData = [];
 
       daySessions.forEach(s => {
-          // --- FIX: ROBUST TAG CHECK ---
-          const tagName = s.tag?.name || 'Untagged';
-          const tagColor = s.tag?.color || '#3B82F6';
+          const { name: tagName, color: tagColor } = resolveTagInfo(s.tag);
           
           if (!tagMap[tagName]) tagMap[tagName] = { name: tagName, color: tagColor, minutes: 0 };
           tagMap[tagName].minutes += s.duration;
@@ -205,9 +236,7 @@ const Analyze = () => {
                 days[dayIndex].sessions += 1;
             }
 
-            // --- FIX: ROBUST TAG CHECK ---
-            const tagName = s.tag?.name || 'Untagged';
-            const tagColor = s.tag?.color || '#3B82F6';
+            const { name: tagName, color: tagColor } = resolveTagInfo(s.tag);
             
             if (!tagMap[tagName]) tagMap[tagName] = { name: tagName, color: tagColor, minutes: 0 };
             tagMap[tagName].minutes += s.duration;
@@ -244,9 +273,7 @@ const Analyze = () => {
           const m = s.createdAt.getMonth();
           monthMap[m] = (monthMap[m] || 0) + s.duration;
 
-          // --- FIX: ROBUST TAG CHECK ---
-          const tagName = s.tag?.name || 'Untagged';
-          const tagColor = s.tag?.color || '#3B82F6';
+          const { name: tagName, color: tagColor } = resolveTagInfo(s.tag);
 
           if (!tagMap[tagName]) tagMap[tagName] = { name: tagName, color: tagColor, minutes: 0 };
           tagMap[tagName].minutes += s.duration;
@@ -332,7 +359,6 @@ const Analyze = () => {
     setFn({ current, best });
   };
 
-  // --- UI HELPERS ---
   const formatTime = (mins) => {
     const h = Math.floor(mins / 60);
     const m = Math.floor(mins % 60);
@@ -371,10 +397,25 @@ const Analyze = () => {
         const dateStr = getLocalDateKey(d);
         
         const mins = dailyMap[dateStr] || 0;
+        
+        // --- GRADUAL HEATMAP (Max 5 hrs) ---
         let bgClass = 'bg-[#1E2330] text-gray-400 border border-white/5';
-        if (mins > 0) bgClass = 'bg-green-900/40 text-green-400 border border-green-500/30';
-        if (mins >= 30) bgClass = 'bg-green-600/60 text-white border border-green-400/50';
-        if (mins >= 60) bgClass = 'bg-[#4ADE80] text-black font-bold border-none shadow-[0_0_10px_rgba(74,222,128,0.4)]';
+        
+        if (mins > 0) {
+            if (mins < 60) {
+                // Tier 1 ( < 1hr)
+                bgClass = 'bg-green-900/40 text-green-400 border border-green-500/30';
+            } else if (mins < 180) {
+                // Tier 2 ( 1 - 3hrs )
+                bgClass = 'bg-green-700/50 text-green-100 border border-green-500/50';
+            } else if (mins < 300) {
+                // Tier 3 ( 3 - 5hrs )
+                bgClass = 'bg-green-600 text-white border border-green-400';
+            } else {
+                // Tier 4 ( 5+ hrs ) - NEON
+                bgClass = 'bg-[#4ADE80] text-black font-bold border-none shadow-[0_0_10px_rgba(74,222,128,0.4)]';
+            }
+        }
         
         const isToday = dateStr === getLocalDateKey(new Date());
         
@@ -432,15 +473,20 @@ const Analyze = () => {
           
           const dayData = dataMap[dateStr];
           const mins = dayData?.minutes || 0;
+          
+          // --- MINI HEATMAP GRADUAL ---
           let colorClass = 'bg-[#1E2330]';
-          if (mins > 0) colorClass = 'bg-green-900/60 hover:bg-green-800 transition-colors cursor-pointer';
-          if (mins > 30) colorClass = 'bg-green-600 hover:bg-green-500 transition-colors cursor-pointer';
-          if (mins > 60) colorClass = 'bg-[#4ADE80] hover:bg-green-300 transition-colors cursor-pointer';
+          if (mins > 0) {
+              if (mins < 60) colorClass = 'bg-green-900/60 hover:bg-green-800'; // Tier 1
+              else if (mins < 180) colorClass = 'bg-green-700/60 hover:bg-green-600'; // Tier 2
+              else if (mins < 300) colorClass = 'bg-green-500 hover:bg-green-400'; // Tier 3
+              else colorClass = 'bg-[#4ADE80] hover:bg-green-300 shadow-[0_0_4px_rgba(74,222,128,0.4)]'; // Tier 4 (Neon)
+          }
           
           days.push(
             <div 
                 key={i} 
-                className={`w-3.5 h-3.5 rounded-sm ${colorClass}`} 
+                className={`w-3.5 h-3.5 rounded-sm ${colorClass} transition-colors cursor-pointer`} 
                 onMouseEnter={(e) => handleMouseEnter(e, d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), dayData)} 
                 onMouseLeave={handleMouseLeave} 
             />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Settings, CheckSquare, Tag, Volume2, Square, Check, VolumeX } from 'lucide-react';
+import { Play, Pause, Settings, CheckSquare, Tag, Volume2, Square, Check, VolumeX, AlertCircle } from 'lucide-react';
 import FocusSettings from '../components/FocusSettings';
 import TagManager from '../components/TagManager';
 
@@ -51,6 +51,10 @@ const Focus = () => {
   
   const [showTagMenu, setShowTagMenu] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
+  
+  // NEW: State for Tag Warning Popup
+  const [showTagWarning, setShowTagWarning] = useState(false);
+
   const tagMenuRef = useRef(null);
   
   const audioRef = useRef(new Audio(FINISH_SOUND_URL));
@@ -180,6 +184,12 @@ const Focus = () => {
   }, [isActive, timeLeft, soundEnabled]);
 
   const toggleTimer = () => {
+    // --- FORCE TAG SELECTION WITH CUSTOM POPUP ---
+    if (!isActive && !selectedTag) {
+        setShowTagWarning(true); // Trigger the nice popup
+        return; 
+    }
+
     if (timeLeft > 0) setIsActive(!isActive);
   };
 
@@ -220,6 +230,27 @@ const Focus = () => {
           }
         `}
       </style>
+
+      {/* --- CUSTOM WARNING POPUP --- */}
+      {showTagWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-[#1E2330] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center transform scale-100 transition-all">
+                <div className="w-12 h-12 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-yellow-500/20">
+                    <Tag className="text-yellow-500" size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">Tag Required</h3>
+                <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+                    Please select a tag to start your session! This helps in tracking your focus distribution accurately.
+                </p>
+                <button 
+                    onClick={() => setShowTagWarning(false)}
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl font-medium transition-colors shadow-lg shadow-blue-500/20 active:scale-95"
+                >
+                    Got it
+                </button>
+            </div>
+        </div>
+      )}
 
       {loading && <div className="absolute top-4 right-4 text-xs text-gray-500 animate-pulse">Syncing...</div>}
 
